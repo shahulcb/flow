@@ -7,7 +7,7 @@ export async function fetchAllData() {
   try {
     await connectToDatabase();
     const projects = await Project.find({});
-    const tasks = await Task.find({});
+    const tasks = await Task.find({}).sort({ order: 1 });
     
     return {
       projects: projects.map(p => ({
@@ -26,6 +26,7 @@ export async function fetchAllData() {
           priority: t.label?.priority || 1
         },
         status: t.status,
+        order: t.order || 0,
         history: t.history.map((h: any) => ({
           status: h.status,
           timestamp: h.timestamp.toISOString(),
@@ -75,5 +76,19 @@ export async function saveTask(data: any) {
 export async function removeTask(id: string) {
   await connectToDatabase();
   await Task.findByIdAndDelete(id);
+  return true;
+}
+
+export async function bulkSaveTasks(tasksData: any[]) {
+  await connectToDatabase();
+  const bulkOps = tasksData.map(t => ({
+    updateOne: {
+      filter: { _id: t.id },
+      update: { $set: { status: t.status, order: t.order, history: t.history } }
+    }
+  }));
+  if (bulkOps.length > 0) {
+    await Task.bulkWrite(bulkOps);
+  }
   return true;
 }

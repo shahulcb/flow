@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { fetchAllData, saveProject as apiSaveProject, removeProject as apiRemoveProject, saveTask as apiSaveTask, removeTask as apiRemoveTask } from "@/actions/flowActions";
+import { fetchAllData, saveProject as apiSaveProject, removeProject as apiRemoveProject, saveTask as apiSaveTask, removeTask as apiRemoveTask, bulkSaveTasks as apiBulkSaveTasks } from "@/actions/flowActions";
 
 export type TaskStatus = "Not Opened" | "Opened" | "Progressing" | "Completed" | "Closed";
 
@@ -31,6 +31,7 @@ export type Task = {
   title: string;
   label: Label;
   status: TaskStatus;
+  order?: number;
   history: StatusChange[];
 };
 
@@ -199,21 +200,30 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateTasksBulk = async (newTasksList: Task[]) => {
+    // Determine if any task actually changed status
     const changedTask = newTasksList.find(nT => {
       const oldT = tasks.find(t => t.id === nT.id);
       return oldT && oldT.status !== nT.status;
     });
+
+    // Assign explicit ordering to the array based on their visual order
+    const updatedOrderedTasks = newTasksList.map((t, index) => ({
+      ...t,
+      order: index
+    }));
     
-    setTasks(newTasksList);
+    setTasks(updatedOrderedTasks);
     
     if (changedTask) {
-      await apiSaveTask(changedTask);
       addNotification({
         title: "Status Updated",
         message: `Task moved to ${changedTask.status}.`,
         type: "info"
       });
     }
+
+    // Always bulk save to ensure order gets updated in backend
+    await apiBulkSaveTasks(updatedOrderedTasks);
   };
 
   return (

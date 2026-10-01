@@ -14,6 +14,7 @@ const TaskSchema = new mongoose.Schema({
     priority: Number
   },
   status: { type: String, default: 'Not Opened' },
+  order: { type: Number, default: 0 },
   history: [StatusChangeSchema]
 }, { timestamps: true });
 

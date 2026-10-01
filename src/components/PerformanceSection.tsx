@@ -15,7 +15,7 @@ export default function PerformanceSection() {
     let closedTaskCount = 0;
     let totalReopens = 0;
 
-    const taskScores = [];
+    const taskScores: { title: string; score: number; priority: number; reopens: number }[] = [];
 
     tasks.forEach(task => {
       // Find lifecycle milestones

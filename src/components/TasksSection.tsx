@@ -3,13 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, GripVertical, History, LayoutList, LayoutGrid, Tag, AlertCircle, X, Clock, MessageSquareWarning, Filter } from "lucide-react";
+import { Plus, GripVertical, History, LayoutList, LayoutGrid, Tag, AlertCircle, X, Clock, MessageSquareWarning, Filter, Trash2 } from "lucide-react";
 import { useFlow, Task, Label, TaskStatus } from "@/context/FlowContext";
 
 const COLUMNS: TaskStatus[] = ["Not Opened", "Opened", "Progressing", "Completed", "Closed"];
 
 export default function TasksSection() {
-  const { tasks, labels: availableLabels, setLabels: setAvailableLabels, projects, addTask, updateTasksBulk } = useFlow();
+  const { tasks, labels: availableLabels, setLabels: setAvailableLabels, projects, addTask, updateTasksBulk, addNotification, deleteTask } = useFlow();
 
   const [viewMode, setViewMode] = useState<"list" | "kanban">("kanban");
   const [isAdding, setIsAdding] = useState(false);
@@ -42,6 +42,17 @@ export default function TasksSection() {
 
   const displayedTasks = filterProjectId === "all" ? tasks : tasks.filter(t => t.projectId === filterProjectId);
 
+  const handleDeleteTask = (task: Task) => {
+    if (confirm(`Are you sure you want to permanently delete "${task.title}"?`)) {
+      deleteTask(task.id);
+      addNotification({
+        title: "Task Deleted",
+        message: `"${task.title}" has been permanently removed.`,
+        type: "info"
+      });
+    }
+  };
+
   const onDragEnd = (result: DropResult) => {
     const { source, destination } = result;
     if (!destination) return;
@@ -56,9 +67,43 @@ export default function TasksSection() {
       const movedTask = sourceTasks[source.index];
       
       if (!movedTask) return;
-      if (sourceStatus === destStatus) return; 
+      
+      if (sourceStatus === destStatus) {
+        // Reordering within the same column
+        if (source.index === destination.index) return;
+        
+        const columnTasks = displayedTasks.filter(t => t.status === sourceStatus);
+        
+        // Reorder isolated column subset
+        const [removedItem] = columnTasks.splice(source.index, 1);
+        
+        // Add history log for manual reordering
+        removedItem.history = [...removedItem.history, { 
+          status: sourceStatus, 
+          timestamp: new Date().toISOString(),
+          reason: "Reordered Priority" 
+        }];
+
+        columnTasks.splice(destination.index, 0, removedItem);
+
+        // Recombine global array
+        const otherTasks = newTasks.filter(t => t.status !== sourceStatus);
+        const finalTasks = [...otherTasks, ...columnTasks];
+        
+        updateTasksBulk(finalTasks);
+        return;
+      }
 
       if (sourceStatus === "Closed" && destStatus !== "Closed") {
+        if (destStatus !== "Opened") {
+          addNotification({
+            title: "Action Restricted",
+            message: "Closed tasks can only be moved back to the 'Opened' column.",
+            type: "warning"
+          });
+          return;
+        }
+
         setPendingReopen({
           task: movedTask,
           destStatus
@@ -534,9 +579,16 @@ export default function TasksSection() {
                                 <Clock size={12} />
                                 {formatDate(lastHistory.timestamp)}
                               </div>
-                              <button onClick={() => setSelectedTask(task)} className="text-zinc-600 hover:text-white p-1.5 bg-white/5 rounded-md transition-colors opacity-0 group-hover:opacity-100">
-                                <History size={14} />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                {task.status === "Not Opened" && (
+                                  <button onClick={() => handleDeleteTask(task)} className="text-rose-500 hover:text-rose-400 p-1.5 bg-white/5 hover:bg-rose-500/20 rounded-md transition-colors opacity-0 group-hover:opacity-100" title="Delete Task">
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                                <button onClick={() => setSelectedTask(task)} className="text-zinc-600 hover:text-white p-1.5 bg-white/5 rounded-md transition-colors opacity-0 group-hover:opacity-100">
+                                  <History size={14} />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )}
@@ -552,12 +604,18 @@ export default function TasksSection() {
             )}
           </Droppable>
         ) : (
-          <div className="flex flex-nowrap overflow-x-auto pb-6 gap-4 h-full items-start custom-scrollbar flex-1 snap-x">
+          <Droppable droppableId="board" direction="horizontal" type="column">
+            {(boardProvided) => (
+              <div 
+                {...boardProvided.droppableProps}
+                ref={boardProvided.innerRef}
+                className="flex flex-nowrap overflow-x-auto pb-6 gap-4 h-full items-start custom-scrollbar flex-1"
+              >
             {COLUMNS.map((colStatus) => {
               const colTasks = displayedTasks.filter(t => t.status === colStatus);
               
               return (
-                <div key={colStatus} className="flex flex-col w-[280px] shrink-0 snap-start bg-black/20 border border-white/5 rounded-2xl overflow-hidden h-[calc(100vh-280px)]">
+                <div key={colStatus} className="flex flex-col w-[280px] shrink-0 bg-black/20 border border-white/5 rounded-2xl overflow-hidden h-[calc(100vh-280px)]">
                   <div className="p-4 border-b border-white/5 bg-white/[0.02] flex justify-between items-center shrink-0">
                     <div className="flex items-center gap-2">
                       <div className={`w-2 h-2 rounded-full ${
@@ -596,12 +654,23 @@ export default function TasksSection() {
                                     <span className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded border ${getLabelColor(task.label.priority)}`}>
                                       <AlertCircle size={10} /> {task.label.name} <span className="opacity-60">P{task.label.priority}</span>
                                     </span>
-                                    <button 
-                                      onClick={() => setSelectedTask(task)} 
-                                      className="text-zinc-500 hover:bg-white/10 bg-white/5 p-1 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-                                    >
-                                      <History size={14} />
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                      {task.status === "Not Opened" && (
+                                        <button 
+                                          onClick={() => handleDeleteTask(task)} 
+                                          className="text-rose-500 hover:bg-rose-500/20 bg-rose-500/10 p-1 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                          title="Delete Task"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      )}
+                                      <button 
+                                        onClick={() => setSelectedTask(task)} 
+                                        className="text-zinc-500 hover:bg-white/10 bg-white/5 p-1 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                      >
+                                        <History size={14} />
+                                      </button>
+                                    </div>
                                   </div>
                                   <h4 className={`text-sm font-medium text-white mb-1 leading-snug ${task.status === 'Closed' ? 'line-through text-zinc-400' : ''}`}>{task.title}</h4>
                                   <p className="text-[10px] text-indigo-400 mb-3">{getProjectName(task.projectId)}</p>
@@ -632,7 +701,10 @@ export default function TasksSection() {
                 </div>
               );
             })}
+            {boardProvided.placeholder}
           </div>
+          )}
+          </Droppable>
         )}
       </DragDropContext>
     </div>
